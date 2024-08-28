@@ -7,17 +7,17 @@ extension Dictionary where Key == String, Value == String {
     }
 }
 
-struct AuthorizationRequest {
+public struct AuthorizationRequest {
     let clientId: String
-    let presentation_definition: String?
+    let presentationDefinition: String?
     let scope: String?
-    let response_type: String
-    let response_mode: String
+    let responseType: String
+    let responseMode: String
     let nonce: String
     let state: String
-    let response_uri: String
+    let responseUri: String
     
-    static func getAuthorizationRequest(encodedAuthorizationRequest: String, openId4VpInstance: OpenId4VP) throws {
+    static func getAuthorizationRequest(encodedAuthorizationRequest: String, setResponseUri: (String) -> Void) throws -> AuthorizationRequest {
         
         Logger.getLogTag(className: String(describing: self))
         
@@ -26,11 +26,11 @@ struct AuthorizationRequest {
             throw AuthorizationRequestException.decodingException
         }
         
-        try parseAuthorizationRequest(decodedAuthorizationRequest: decodedRequest,openId4VpInstance: openId4VpInstance)
+        return try parseAuthorizationRequest(decodedAuthorizationRequest: decodedRequest, setResponseUri: setResponseUri)
         
     }
     
-    private static func parseAuthorizationRequest(decodedAuthorizationRequest: String, openId4VpInstance: OpenId4VP) throws {
+    private static func parseAuthorizationRequest(decodedAuthorizationRequest: String, setResponseUri: (String) -> Void) throws -> AuthorizationRequest {
         
         guard let encodedRequestUrl = urlEncodedRequest(decodedAuthorizationRequest) else {
             Logger.error("URLEncoding of the AuthorizationRequest failed while parsing.")
@@ -44,17 +44,17 @@ struct AuthorizationRequest {
         
         let params = try extractQueryParams(from: queryItems)
         
-        try validateQueryParams(params,openId4VpInstance)
+        try validateQueryParams(params,setResponseUri)
         
-        openId4VpInstance.authorizationRequest = AuthorizationRequest(
+        return AuthorizationRequest(
             clientId: params["client_id"]!,
-            presentation_definition: params["presentation_definition"],
+            presentationDefinition: params["presentation_definition"],
             scope: params["scope"],
-            response_type: params["response_type"]!,
-            response_mode: params["response_mode"]!,
+            responseType: params["response_type"]!,
+            responseMode: params["response_mode"]!,
             nonce: params["nonce"]!,
             state: params["state"]!,
-            response_uri: params["response_uri"]!
+            responseUri: params["response_uri"]!
         )
         
     }
@@ -74,7 +74,7 @@ struct AuthorizationRequest {
     }
     
     
-    private static func validateQueryParams(_ values: [String: String],_ openId4VpInstance: OpenId4VP) throws {
+    private static func validateQueryParams(_ values: [String: String], _ setResponseUri: (String) -> Void) throws {
         var requiredKeys = [
             "client_id",
             "response_type",
@@ -109,7 +109,7 @@ struct AuthorizationRequest {
                 throw AuthorizationRequestException.missingInput(fieldName: key)
             }
             if key == "response_uri" {
-                openId4VpInstance.responseUri = values["response_uri"]
+                setResponseUri(values["response_uri"]!)
             }
             if values[key] == "" || values[key] == "null" {
                 Logger.error("AuthorizationRequest parameter \(key) should not be null.")

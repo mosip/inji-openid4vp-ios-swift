@@ -7,13 +7,13 @@ class OpenId4VPTests: XCTestCase {
     
     let authorizationRequest = AuthorizationRequest(
         clientId: "client_id",
-        presentation_definition: "presentationDefinition",
+        presentationDefinition: "presentationDefinition",
         scope: "scope",
-        response_type: "responseType",
-        response_mode: "responseMode",
+        responseType: "responseType",
+        responseMode: "responseMode",
         nonce: "nonce",
         state: "state",
-        response_uri: "https://example.com"
+        responseUri: "https://example.com"
     )
     
     let jws = "wemcn3234ns"
@@ -32,8 +32,8 @@ class OpenId4VPTests: XCTestCase {
         mockNetworkManager = MockNetworkManager()
         
         openId4Vp = OpenId4VP(traceabilityId: "AXESWSAW123", networkManager: mockNetworkManager)
-        openId4Vp.presentationDefinitionId = "AWSE"
-        openId4Vp.responseUri = "https://example.com"
+        openId4Vp.setPresentationDefinitionId("AWSE")
+        openId4Vp.setResponseUri("https://example.com")
         openId4Vp.authorizationRequest = authorizationRequest
         
         AuthorizationResponse.descriptorMap = descriptorMap

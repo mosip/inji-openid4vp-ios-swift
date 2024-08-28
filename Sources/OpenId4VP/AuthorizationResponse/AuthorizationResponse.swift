@@ -40,17 +40,17 @@ struct AuthorizationResponse{
         }
     }
     
-    static func shareVp(vpResponseMetadata: VPResponseMetadata, openId4VpInstance: OpenId4VP, networkManager: NetworkManaging) async throws -> String? {
+    static func shareVp(vpResponseMetadata: VPResponseMetadata, nonce: String, responseUri: String, presentationDefinitionId: String, networkManager: NetworkManaging) async throws -> String? {
         
         try vpResponseMetadata.validate()
         
-        let proof = Proof.constructProof(from: vpResponseMetadata, challenge: openId4VpInstance.authorizationRequest!.nonce)
+        let proof = Proof.constructProof(from: vpResponseMetadata, challenge: nonce)
         
-        let presentationSubmission = PresentationSubmission(definition_id: openId4VpInstance.presentationDefinitionId!, descriptor_map: self.descriptorMap!)
+        let presentationSubmission = PresentationSubmission(definition_id: presentationDefinitionId, descriptor_map: self.descriptorMap!)
         
         let vpToken = VpToken.constructVpToken(signingVPToken: vpTokenForSigning!, proof: proof)
         
-        return try await constructHttpRequestBody(vpToken: vpToken, presentationSubmission: presentationSubmission, responseUri: openId4VpInstance.authorizationRequest!.response_uri, networkManager: networkManager)
+        return try await constructHttpRequestBody(vpToken: vpToken, presentationSubmission: presentationSubmission, responseUri: responseUri, networkManager: networkManager)
     }
     
     private static func constructHttpRequestBody(vpToken: VpToken, presentationSubmission: PresentationSubmission, responseUri: String, networkManager: NetworkManaging = NetworkManager.shared) async throws -> String? {

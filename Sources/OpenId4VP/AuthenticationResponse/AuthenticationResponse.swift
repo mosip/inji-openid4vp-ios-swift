@@ -3,7 +3,7 @@ import Foundation
 public struct AuthenticationResponse {
     let response: [String: String]
     
-    static func getAuthenticationResponse(_ authorizationRequest: AuthorizationRequest,_ trustedVerifierJSON: [[Verifier]], openId4VpInstance: OpenId4VP) throws -> AuthenticationResponse {
+    static func getAuthenticationResponse(_ authorizationRequest: AuthorizationRequest,_ trustedVerifierJSON: [[Verifier]], setPresentationDefinitionId: (String) -> Void) throws -> AuthenticationResponse {
         
         Logger.getLogTag(className: String(describing: self))
         
@@ -11,12 +11,12 @@ public struct AuthenticationResponse {
         
         try verifyClientId(verifierList: trustedVerifierJSON, clientId: authorizationRequest.clientId)
         
-        if (authorizationRequest.presentation_definition != nil) {
-            let presentationDefinition = try PresentationDefinitionValidator.validate(presentatioDefinition:  authorizationRequest.presentation_definition!)
+        if (authorizationRequest.presentationDefinition != nil) {
+            let presentationDefinition = try PresentationDefinitionValidator.validate(presentatioDefinition:  authorizationRequest.presentationDefinition!)
             
-            responseDict["presentation_definition"] = authorizationRequest.presentation_definition
+            responseDict["presentationDefinition"] = authorizationRequest.presentationDefinition
             
-            openId4VpInstance.presentationDefinitionId = presentationDefinition.id
+            setPresentationDefinitionId(presentationDefinition.id)
             
         } else if authorizationRequest.scope != nil {
             responseDict["scope"] = authorizationRequest.scope

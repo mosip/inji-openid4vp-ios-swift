@@ -27,6 +27,7 @@ internal struct DcqlEvaluator {
         // Local caches to ensure we only do work ONCE
         var credentialsTagCache: [String: TaggedCredential] = [:]
         var processedCredentialsCache: [String: any ProcessedCredential] = [:]
+        let holderAlgorithmCache = HolderAlgorithmCache()
         
         for credentialQuery in dcqlQuery.credentials {
             // 1. Format check
@@ -46,10 +47,18 @@ internal struct DcqlEvaluator {
 
                 guard let credentialTag = credentialsTagCache[credentialId] else { continue }
 
-                let holderBindingAndMetaMatchSuccess = matchesCryptographicHolderBinding(
+                var holderBindingAndMetaMatchSuccess = matchesCryptographicHolderBinding(
                     dcqlQueryRequestsCryptograhicHolderBinding: credentialQuery.requireCryptographicHolderBinding,
                     walletCredential: credentialTag
                 ) && matchesMeta(credentialQuery.meta, walletCredential: credentialTag)
+
+                if holderBindingAndMetaMatchSuccess {
+                    holderBindingAndMetaMatchSuccess = await canPreparePresentation(
+                        credentialQuery,
+                        credential,
+                        holderAlgorithmCache
+                    )
+                }
 
                 if holderBindingAndMetaMatchSuccess {
                     metaAndBindingMatchingIds.append(credentialId)
@@ -296,5 +305,41 @@ internal struct DcqlEvaluator {
         
         return true
     }
-    
+
+    private func canPreparePresentation(
+        _ credentialQuery: CredentialQuery,
+        _ walletCredential: Credential,
+        _ holderAlgorithmCache: HolderAlgorithmCache
+    ) async -> Bool {
+        // A query which does not request holder binding is presented as a bare credential with no
+        // proof, so no holder key is involved.
+        guard credentialQuery.requireCryptographicHolderBinding else { return true }
+        guard walletCredential.format == .ldp_vc else { return true }
+
+        guard let isVcdm2 = try? UnsignedLdpVPTokenBuilder.isVcdm2Credential(walletCredential.data),
+              isVcdm2 else { return true }
+
+        guard let credentialDict = walletCredential.data.value as? [String: Any],
+              let credentialSubject = credentialDict["credentialSubject"] as? [String: Any],
+              let holderId = credentialSubject["id"] as? String else { return true }
+
+        guard let algorithm = await holderAlgorithmCache.algorithm(for: holderId) else { return true }
+
+        return algorithm == SignatureAlgorithm.edDsa.rawValue
+            || algorithm == SignatureAlgorithm.es256.rawValue
+    }
+}
+
+/// Memoizes holder DID resolution for the duration of a single evaluation.
+internal final class HolderAlgorithmCache {
+    private var storage: [String: String?] = [:]
+
+    func algorithm(for holderId: String) async -> String? {
+        if let cached = storage[holderId] { return cached }
+
+        let algorithm = try? await getJWSAlgorithm(from: holderId)
+        storage[holderId] = algorithm
+
+        return algorithm
+    }
 }

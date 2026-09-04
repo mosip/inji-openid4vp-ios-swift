@@ -2,6 +2,11 @@ import Foundation
 
 private let className = "UnsignedLdpVPTokenBuilder"
 
+private let vcdmV1Context = "https://www.w3.org/2018/credentials/v1"
+private let vcdmV2Context = "https://www.w3.org/ns/credentials/v2"
+private let eddsaRdfc2022 = "eddsa-rdfc-2022"
+private let ecdsaRdfc2019 = "ecdsa-rdfc-2019"
+
 class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
     private let id: String
     public let specVersion: SpecVersion
@@ -49,7 +54,8 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
                 identifier: identifier,
                 with: verifiableCredentials,
                 signatureSuite: result.signatureSuite,
-                holder: try validateHolderId(result.holder)
+                holder: try validateHolderId(result.holder),
+                isVcdm2: try Self.isVcdm2Credential(credential)
             )
             
             vpTokenSigningPayloads[identifier] = vpTokenSigningPayload
@@ -94,7 +100,8 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
                 identifier: identifier,
                 with: verifiableCredentials,
                 signatureSuite: result.signatureSuite,
-                holder: try validateHolderId(result.holder)
+                holder: try validateHolderId(result.holder),
+                isVcdm2: try Self.isVcdm2Credential(credential)
             )
             
             vpTokenSigningPayloads[identifier] = vpTokenSigningPayload
@@ -107,8 +114,8 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
         return (vpTokenSigningPayloads, unsignedVPTokens)
     }
     
-    private func buildPayloadAndUnsignedVPToken(identifier: String, with credentials: [AnyCodable], signatureSuite: String?, holder: String?) async throws -> (vpTokenSigningPayload: LdpVP, unsignedVPToken: UnsignedVPToken?) {
-        var context: [String] = ["https://www.w3.org/2018/credentials/v1"]
+    private func buildPayloadAndUnsignedVPToken(identifier: String, with credentials: [AnyCodable], signatureSuite: String?, holder: String?, isVcdm2: Bool) async throws -> (vpTokenSigningPayload: LdpVP, unsignedVPToken: UnsignedVPToken?) {
+        var context: [String] = [isVcdm2 ? vcdmV2Context : vcdmV1Context]
         if signatureSuite == SignatureSuite.ed25519Signature2020.rawValue {
             context.append("https://w3id.org/security/suites/ed25519-2020/v1")
         } else if signatureSuite == SignatureSuite.jsonWebSignature2020.rawValue {
@@ -123,13 +130,27 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
             throw InvalidData(message: "Signature suite is required for LDP VP Tokens", className: className)
         }
         
+        let signatureAlgorithm: String = try await getJWSAlgorithm(from: holder)
+
+        var cryptosuite: String? = nil
+        if isVcdm2 {
+            switch signatureAlgorithm {
+            case SignatureAlgorithm.edDsa.rawValue: cryptosuite = eddsaRdfc2022
+            case SignatureAlgorithm.es256.rawValue: cryptosuite = ecdsaRdfc2019
+            default:
+                throw UnsupportedVcdm2HolderKey(algorithm: signatureAlgorithm, className: className)
+            }
+        }
+
         let proof = Proof(
-            type: signatureSuite,
+            type: isVcdm2 ? SignatureSuite.dataIntegrityProof.rawValue : signatureSuite,
             created: nil,
             challenge: authorizationRequest.nonce,
             domain: authorizationRequest.clientId,
+            proofPurpose: isVcdm2 ? ProofPurpose.vpProofPurpose : nil,
             verificationMethod: holder,
-            proofValue: nil
+            proofValue: nil,
+            cryptosuite: cryptosuite
         )
         
         let vpTokenSigningPayload : LdpVP = .vp(
@@ -156,8 +177,22 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
         let canonicalizedData = try await jsonLdCanonicalizer(jsonString)
         let normalizedCredentialData = try Base64Decoder.decodeBase64ToData(canonicalizedData)
         
-        let signatureAlgorithm: String = try await getJWSAlgorithm(from: holder)
         var signingInput = Data()
+
+        // Data Integrity signs the canonicalization output directly: the canonicalizer already
+        // returns sha256(canonical proof config) || sha256(canonical document).
+        if isVcdm2 {
+            signingInput = normalizedCredentialData
+            let unsignedVPToken = UnsignedVPToken(
+                id: identifier,
+                format: .ldp_vc,
+                holderKeyReference: holder,
+                signatureAlgorithm: signatureAlgorithm,
+                dataToSign: signingInput
+            )
+            return (vpTokenSigningPayload, unsignedVPToken)
+        }
+
         switch signatureSuite {
         case SignatureSuite.jsonWebSignature2020.rawValue,
             SignatureSuite.ed25519Signature2018.rawValue:
@@ -203,7 +238,37 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
         }
         
         
-        return (holder: holderId, signatureSuite: SignatureSuite.jsonWebSignature2020.rawValue)
+        let signatureSuite = try Self.isVcdm2Credential(credential)
+            ? SignatureSuite.dataIntegrityProof.rawValue
+            : SignatureSuite.jsonWebSignature2020.rawValue
+
+        return (holder: holderId, signatureSuite: signatureSuite)
+    }
+
+    static func isVcdm2Credential(_ credential: AnyCodable) throws -> Bool {
+        guard let credentialDict = credential.value as? [String: Any] else {
+            throw InvalidData(message: "Credential is not a valid JSON object", className: className)
+        }
+
+        guard let contexts = credentialDict["@context"] as? [Any] else {
+            throw InvalidData(message: "Credential @context must be an ordered array", className: className)
+        }
+
+        guard let first = contexts.first as? String else {
+            throw InvalidData(message: "Credential @context is missing", className: className)
+        }
+
+        if first == vcdmV2Context { return true }
+
+        if first == vcdmV1Context {
+            let remaining = contexts.dropFirst().compactMap { $0 as? String }
+            if remaining.contains(vcdmV2Context) {
+                throw InvalidData(message: "VC 2.0 context must be the first @context entry", className: className)
+            }
+            return false
+        }
+
+        throw InvalidData(message: "Unsupported credential data model context: \(first)", className: className)
     }
     
     func validateHolderId(_ holderId: String) throws -> String {

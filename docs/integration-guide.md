@@ -104,7 +104,9 @@ For DCQL-based requests, the `require_cryptographic_holder_binding` proof parame
 
 > **Note:** A VC 2.0 credential whose holder key is neither Ed25519 nor P-256 cannot be presented by this SDK. Such credentials are **excluded from DCQL matching results** so that they are never offered to the user for selection. For Presentation Exchange requests, where the SDK performs no matching, constructing a presentation for such a credential fails instead.
 
-> **Note:** VC 2.0 presentations reuse the existing `jsonLdCanonicalizer` callback. Data Integrity signs `sha256(canonical proof configuration) || sha256(canonical document)`, which is exactly what the callback already returns, so the wallet needs no change — but unlike `JsonWebSignature2020`, the returned bytes are signed directly with no detached JWS header.
+> **Note:** VC 2.0 presentations reuse the existing `jsonLdCanonicalizer` callback. It must return `sha256(canonical proof configuration) || sha256(canonical document)`, where the proof configuration carries the document's `@context` and no `proofValue`. Unlike `JsonWebSignature2020`, the returned bytes are signed directly with no detached JWS header.
+>
+> The canonicalizer must also honour the type-scoped `"@container": "@graph"` on `verifiableCredential`; otherwise it canonicalizes a different dataset from the one verifiers use and every VC 2.0 presentation fails verification. Inji Wallet's canonicalizer does this from [inji-wallet#2590](https://github.com/inji/inji-wallet/pull/2590) onward.
 
 ---
 

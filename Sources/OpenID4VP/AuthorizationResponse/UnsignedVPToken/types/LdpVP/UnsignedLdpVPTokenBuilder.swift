@@ -2,8 +2,6 @@ import Foundation
 
 private let className = "UnsignedLdpVPTokenBuilder"
 
-private let vcdmV1Context = "https://www.w3.org/2018/credentials/v1"
-private let vcdmV2Context = "https://www.w3.org/ns/credentials/v2"
 private let eddsaRdfc2022 = "eddsa-rdfc-2022"
 private let ecdsaRdfc2019 = "ecdsa-rdfc-2019"
 
@@ -55,7 +53,7 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
                 with: verifiableCredentials,
                 signatureSuite: result.signatureSuite,
                 holder: try validateHolderId(result.holder),
-                isVcdm2: try Self.isVcdm2Credential(credential)
+                isVcdm2: try isVcdm2Credential(credential, className: className)
             )
             
             vpTokenSigningPayloads[identifier] = vpTokenSigningPayload
@@ -101,7 +99,7 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
                 with: verifiableCredentials,
                 signatureSuite: result.signatureSuite,
                 holder: try validateHolderId(result.holder),
-                isVcdm2: try Self.isVcdm2Credential(credential)
+                isVcdm2: try isVcdm2Credential(credential, className: className)
             )
             
             vpTokenSigningPayloads[identifier] = vpTokenSigningPayload
@@ -238,37 +236,11 @@ class UnsignedLdpVPTokenBuilder: UnsignedVPTokenBuilder {
         }
         
         
-        let signatureSuite = try Self.isVcdm2Credential(credential)
+        let signatureSuite = try isVcdm2Credential(credential, className: className)
             ? SignatureSuite.dataIntegrityProof.rawValue
             : SignatureSuite.jsonWebSignature2020.rawValue
 
         return (holder: holderId, signatureSuite: signatureSuite)
-    }
-
-    static func isVcdm2Credential(_ credential: AnyCodable) throws -> Bool {
-        guard let credentialDict = credential.value as? [String: Any] else {
-            throw InvalidData(message: "Credential is not a valid JSON object", className: className)
-        }
-
-        guard let contexts = credentialDict["@context"] as? [Any] else {
-            throw InvalidData(message: "Credential @context must be an ordered array", className: className)
-        }
-
-        guard let first = contexts.first as? String else {
-            throw InvalidData(message: "Credential @context is missing", className: className)
-        }
-
-        if first == vcdmV2Context { return true }
-
-        if first == vcdmV1Context {
-            let remaining = contexts.dropFirst().compactMap { $0 as? String }
-            if remaining.contains(vcdmV2Context) {
-                throw InvalidData(message: "VC 2.0 context must be the first @context entry", className: className)
-            }
-            return false
-        }
-
-        throw InvalidData(message: "Unsupported credential data model context: \(first)", className: className)
     }
     
     func validateHolderId(_ holderId: String) throws -> String {
